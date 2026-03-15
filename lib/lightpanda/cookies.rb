@@ -42,6 +42,14 @@ module Lightpanda
 
     def clear
       browser.command("Network.clearBrowserCookies")
+    rescue BrowserError
+      # Fallback: Lightpanda may not support Network.clearBrowserCookies
+      # and can crash the CDP connection. Delete cookies individually instead.
+      begin
+        all.each { |cookie| remove(name: cookie["name"], domain: cookie["domain"]) }
+      rescue StandardError
+        # If the connection is already dead, silently ignore
+      end
     end
   end
 end

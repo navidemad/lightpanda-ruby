@@ -28,6 +28,7 @@ module Lightpanda
 
       def visit(url)
         browser.go_to(url)
+        inject_xpath_polyfill
       end
 
       def current_url
@@ -83,6 +84,25 @@ module Lightpanda
         nil
       end
 
+      def set_cookie(name, value, **options)
+        cookie_options = {}
+        cookie_options[:domain] = options[:domain] if options[:domain]
+        cookie_options[:path] = options[:path] if options[:path]
+        cookie_options[:secure] = options[:secure] if options.key?(:secure)
+        cookie_options[:http_only] = options[:httpOnly] || options[:http_only] if options.key?(:httpOnly) || options.key?(:http_only)
+        cookie_options[:expires] = options[:expires] if options[:expires]
+
+        browser.cookies.set(name: name, value: value, **cookie_options)
+      end
+
+      def clear_cookies
+        browser.cookies.clear
+      end
+
+      def remove_cookie(name, **options)
+        browser.cookies.remove(name: name, **options)
+      end
+
       def reset!
         browser.go_to("about:blank")
       rescue StandardError
@@ -107,6 +127,45 @@ module Lightpanda
       end
 
       private
+
+      XPATH_POLYFILL_JS = <<~JS
+        if (typeof XPathResult === 'undefined') {
+          window.XPathResult = {
+            ORDERED_NODE_SNAPSHOT_TYPE: 7,
+            FIRST_ORDERED_NODE_TYPE: 9
+          };
+          if (!document.evaluate) {
+            document.evaluate = function(expression, contextNode) {
+              var nodes = [];
+              try {
+                var css = expression
+                  .replace(/^\\.\\//g, '')
+                  .replace(/\\/\\//g, '')
+                  .replace(/\\[@/g, '[')
+                  .replace(/\\//g, ' > ');
+                if (css.startsWith(' > ')) css = css.substring(3);
+                nodes = Array.from(contextNode.querySelectorAll(css));
+              } catch(e) {
+                nodes = [];
+              }
+              if (nodes.length === 0 && expression === '/html') {
+                nodes = [document.documentElement];
+              }
+              return {
+                snapshotLength: nodes.length,
+                snapshotItem: function(i) { return nodes[i] || null; },
+                singleNodeValue: nodes[0] || null
+              };
+            };
+          }
+        }
+      JS
+
+      def inject_xpath_polyfill
+        browser.execute(XPATH_POLYFILL_JS)
+      rescue StandardError
+        # Ignore if page isn't ready yet
+      end
 
       def wrap_nodes(nodes)
         return [] unless nodes.is_a?(Array)

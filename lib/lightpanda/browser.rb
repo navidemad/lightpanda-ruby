@@ -78,7 +78,11 @@ module Lightpanda
 
         result = page_command("Page.navigate", url: url)
 
-        loaded.wait(@options.timeout)
+        unless loaded.wait(@options.timeout)
+          # Fallback: Lightpanda may not fire Page.loadEventFired on pages with
+          # complex JS. Poll document.readyState instead.
+          poll_ready_state(@options.timeout)
+        end
 
         @client.off("Page.loadEventFired", handler)
 
@@ -198,6 +202,16 @@ module Lightpanda
       result = page_command("Page.getNavigationHistory")
 
       result["currentIndex"]
+    end
+
+    def poll_ready_state(timeout)
+      deadline = ::Process.clock_gettime(::Process::CLOCK_MONOTONIC) + timeout
+      loop do
+        ready = evaluate("document.readyState") rescue nil
+        break if ready == "complete" || ready == "interactive"
+        break if ::Process.clock_gettime(::Process::CLOCK_MONOTONIC) > deadline
+        sleep 0.1
+      end
     end
 
     def handle_evaluate_response(response)
